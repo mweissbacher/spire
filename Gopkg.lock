@@ -60,7 +60,7 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:90d9ba275cb7a7c2c926c5e1d4f9f2b6fe96b8e85c3b7c5f60bdc7d9ad6f8f52"
+  digest = "1:ee5abfbdd3a6ad458dbc7d8ed3d4d6e4d08f45c4621d701d733264c2dce6914f"
   name = "github.com/aws/aws-sdk-go"
   packages = [
     "aws",
@@ -86,12 +86,16 @@
     "internal/shareddefaults",
     "private/protocol",
     "private/protocol/ec2query",
+    "private/protocol/json/jsonutil",
+    "private/protocol/jsonrpc",
     "private/protocol/query",
     "private/protocol/query/queryutil",
     "private/protocol/rest",
     "private/protocol/xml/xmlutil",
     "service/ec2",
     "service/iam",
+    "service/secretsmanager",
+    "service/secretsmanager/secretsmanageriface",
     "service/sts",
   ]
   pruneopts = "UT"
@@ -659,13 +663,17 @@
     "github.com/aws/aws-sdk-go/aws/session",
     "github.com/aws/aws-sdk-go/service/ec2",
     "github.com/aws/aws-sdk-go/service/iam",
+    "github.com/aws/aws-sdk-go/service/secretsmanager",
+    "github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface",
     "github.com/dgrijalva/jwt-go",
     "github.com/golang/mock/gomock",
+    "github.com/golang/protobuf/jsonpb",
     "github.com/golang/protobuf/proto",
     "github.com/golang/protobuf/protoc-gen-go",
     "github.com/golang/protobuf/protoc-gen-go/descriptor",
     "github.com/golang/protobuf/protoc-gen-go/plugin",
     "github.com/golang/protobuf/ptypes/empty",
+    "github.com/golang/protobuf/ptypes/struct",
     "github.com/golang/protobuf/ptypes/wrappers",
     "github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway",
     "github.com/grpc-ecosystem/grpc-gateway/protoc-gen-swagger",
