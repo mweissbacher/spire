@@ -11,9 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
@@ -114,7 +112,7 @@ func (m *awssecretPlugin) Configure(ctx context.Context, req *spi.ConfigureReque
 	keyPEMstr, err := readARN(config, config.KeyFileARN)
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to read %s: %s", config.KeyFilePath, err)
+		return nil, fmt.Errorf("unable to read %s: %s", config.KeyFileARN, err)
 	}
 
 	keyPEM := []byte(*keyPEMstr)
@@ -137,7 +135,7 @@ func (m *awssecretPlugin) Configure(ctx context.Context, req *spi.ConfigureReque
 	certPEMstr, err := readARN(config, config.CertFileARN)
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to read %s: %s", config.CertFilePath, err)
+		return nil, fmt.Errorf("unable to read %s: %s", config.CertFileARN, err)
 	}
 
 	certPEM := []byte(*certPEMstr)
@@ -207,45 +205,4 @@ func New() upstreamca.Plugin {
 	p.serialNumber = x509util.NewSerialNumber()
 
 	return p
-}
-
-func readARN(config *AWSSecretConfiguration, arn string) (*string, error) {
-
-	sm, err := newSecretsManagerClient(config, "us-west-2")
-
-	if err != nil {
-		return nil, err
-	}
-
-	req, resp := sm.GetSecretValueRequest(&secretsmanager.GetSecretValueInput{
-		SecretId: aws.String(arn),
-	})
-
-	err = req.Send()
-	if err != nil { // resp is now filled
-		return nil, iidError.Wrap(err)
-	}
-
-	return resp.SecretString, nil
-
-}
-
-func newSecretsManagerClient(config *AWSSecretConfiguration, region string) (*secretsmanager.SecretsManager, error) {
-	conf := aws.NewConfig()
-	conf.Credentials = credentials.NewStaticCredentials(config.AccessKeyID, config.SecretAccessKey, config.SecurityToken)
-	conf.Region = aws.String(region)
-
-	var awsSession *session.Session
-
-	if config.SecretAccessKey != "" && config.AccessKeyID != "" {
-		// Adding Token
-		creds := credentials.NewStaticCredentials(config.AccessKeyID, config.SecretAccessKey, config.SecurityToken)
-		awsSession = session.Must(session.NewSession(&aws.Config{Credentials: creds, Region: aws.String(region)}))
-	} else {
-		awsSession = session.Must(session.NewSession(&aws.Config{Region: aws.String(region)}))
-	}
-
-	svc := secretsmanager.New(awsSession)
-
-	return svc, nil
 }
