@@ -1,27 +1,39 @@
 package awssecret
 
 import (
+	"io/ioutil"
+	"net/http"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
+	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
+	"github.com/stretchr/testify/suite"
 )
 
-// AWS Functions not specific to upstreamCA
+type awsClient interface {
+	DescribeInstancesWithContext(aws.Context, *ec2.DescribeInstancesInput, ...request.Option) (*ec2.DescribeInstancesOutput, error)
+	GetInstanceProfileWithContext(aws.Context, *iam.GetInstanceProfileInput, ...request.Option) (*iam.GetInstanceProfileOutput, error)
+}
 
-func readARN(config *AWSSecretConfiguration, arn string) (*string, error) {
+type fakeSecretsManagerClient struct {
+	suite.Suite
+	secretsmanageriface.SecretsManagerAPI
 
-	sm, err := newSecretsManagerClient(config, "us-west-2")
+	mockStorage map[string]string
+}
 
-	if err != nil {
-		return nil, err
-	}
+func readARN(sm secretsmanageriface.SecretsManagerAPI, arn string) (*string, error) {
 
 	req, resp := sm.GetSecretValueRequest(&secretsmanager.GetSecretValueInput{
 		SecretId: aws.String(arn),
 	})
 
-	err = req.Send()
+	err := req.Send()
 	if err != nil { // resp is now filled
 		return nil, iidError.Wrap(err)
 	}
@@ -30,9 +42,8 @@ func readARN(config *AWSSecretConfiguration, arn string) (*string, error) {
 
 }
 
-func newSecretsManagerClient(config *AWSSecretConfiguration, region string) (*secretsmanager.SecretsManager, error) {
+func newSecretsManagerClient(config *AWSSecretConfiguration, region string) (secretsmanageriface.SecretsManagerAPI, error) {
 	conf := aws.NewConfig()
-	conf.Credentials = credentials.NewStaticCredentials(config.AccessKeyID, config.SecretAccessKey, config.SecurityToken)
 	conf.Region = aws.String(region)
 
 	var awsSession *session.Session
@@ -48,4 +59,48 @@ func newSecretsManagerClient(config *AWSSecretConfiguration, region string) (*se
 	svc := secretsmanager.New(awsSession)
 
 	return svc, nil
+}
+
+func newFakeSecretsManagerClient() (secretsmanageriface.SecretsManagerAPI, error) {
+
+	svc := new(fakeSecretsManagerClient)
+	return svc, nil
+
+}
+
+func (sm *fakeSecretsManagerClient) GetSecretValueRequest(input *secretsmanager.GetSecretValueInput) (*request.Request, *secretsmanager.GetSecretValueOutput) {
+
+	retreq := new(request.Request)
+	httpReq, _ := http.NewRequest("POST", "", nil)
+
+	retreq.HTTPRequest = httpReq
+
+	resp := secretsmanager.GetSecretValueOutput{}
+
+	cert, err := ioutil.ReadFile("_test_data/keys/cert.pem")
+	if err != nil {
+		return retreq, &resp
+	}
+
+	key, err := ioutil.ReadFile("_test_data/keys/private_key.pem")
+	if err != nil {
+		return retreq, &resp
+	}
+
+	sm.mockStorage = map[string]string{
+		"cert": string(cert),
+		"key":  string(key),
+	}
+
+	if value, ok := sm.mockStorage[*input.SecretId]; ok {
+		resp := secretsmanager.GetSecretValueOutput{}
+		resp.ARN = nil
+		vstring := value
+		resp.ARN = input.SecretId
+		resp.SecretString = &vstring
+		return retreq, &resp
+	} else {
+		resp.ARN = nil
+		return retreq, &resp
+	}
 }

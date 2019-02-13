@@ -2,6 +2,7 @@ package awssecret
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -10,11 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/iam"
-	"github.com/aws/aws-sdk-go/service/secretsmanager"
+	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
 	"github.com/hashicorp/hcl"
 	"github.com/zeebo/errs"
 
@@ -33,12 +30,13 @@ var (
 )
 
 type AWSSecretConfiguration struct {
-	TTL             string `hcl:"ttl" json:"ttl"` // time to live for generated certs
-	CertFileARN     string `hcl:"cert_file_arn" json:"cert_file_arn"`
-	KeyFileARN      string `hcl:"key_file_arn" json:"key_file_arn"`
-	AccessKeyID     string `hcl:"access_key_id"`
-	SecretAccessKey string `hcl:"secret_access_key"`
-	SecurityToken   string `hcl:"secret_token"`
+	TTL                   string `hcl:"ttl" json:"ttl"` // time to live for generated certs
+	CertFileARN           string `hcl:"cert_file_arn" json:"cert_file_arn"`
+	KeyFileARN            string `hcl:"key_file_arn" json:"key_file_arn"`
+	AccessKeyID           string `hcl:"access_key_id" json:"access_key_id"`
+	SecretAccessKey       string `hcl:"secret_access_key" json:"secret_access_key"`
+	SecurityToken         string `hcl:"secret_token" json:"secret_token"`
+	UseFakeSecretsManager string `hcl:"use_fake_secretsmanager" json:"use_fake_secretsmanager"`
 }
 
 type awssecretPlugin struct {
@@ -51,18 +49,64 @@ type awssecretPlugin struct {
 	mu     sync.RWMutex
 	config *AWSSecretConfiguration
 	//clients map[string]awsClient
+	secrm             secretsmanageriface.SecretsManagerAPI
+	setSecretsManager func(secretsmanageriface.SecretsManagerAPI)
 
 	hooks struct {
-		getenv    func(string) string
-		newClient func(config *AWSSecretConfiguration, region string) (*secretsmanager.SecretsManager, error)
+		getenv            func(string) string
+		newClient         func(config *AWSSecretConfiguration, region string) (secretsmanageriface.SecretsManagerAPI, error)
+		setSecretsManager func(s secretsmanageriface.SecretsManagerAPI)
 	}
 }
 
-type awsClient interface {
-	DescribeInstancesWithContext(aws.Context, *ec2.DescribeInstancesInput, ...request.Option) (*ec2.DescribeInstancesOutput, error)
-	GetInstanceProfileWithContext(aws.Context, *iam.GetInstanceProfileInput, ...request.Option) (*iam.GetInstanceProfileOutput, error)
-	GetIAM() *iam.IAM
-	GetEC2() *ec2.EC2
+func fetchFromSecretsManager(config *AWSSecretConfiguration, sm secretsmanageriface.SecretsManagerAPI) (*ecdsa.PrivateKey, *x509.Certificate, error) {
+
+	keyPEMstr, err := readARN(sm, config.KeyFileARN)
+
+	if keyPEMstr == nil || err != nil {
+		return nil, nil, fmt.Errorf("unable to read %s: %s", config.KeyFileARN, err)
+	}
+
+	keyPEM := []byte(*keyPEMstr)
+
+	block, rest := pem.Decode(keyPEM)
+
+	if block == nil {
+		return nil, nil, errors.New("invalid key format")
+	}
+
+	if len(rest) > 0 {
+		return nil, nil, errors.New("invalid key format: too many keys")
+	}
+
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	certPEMstr, err := readARN(sm, config.CertFileARN)
+
+	if certPEMstr == nil || err != nil {
+		return nil, nil, fmt.Errorf("unable to read %s: %s", config.CertFileARN, err)
+	}
+
+	certPEM := []byte(*certPEMstr)
+
+	block, rest = pem.Decode(certPEM)
+
+	if block == nil {
+		return nil, nil, errors.New("invalid cert format")
+	}
+
+	if len(rest) > 0 {
+		return nil, nil, errors.New("invalid cert format: too many certs")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	return key, cert, nil
 }
 
 func (m *awssecretPlugin) Configure(ctx context.Context, req *spi.ConfigureRequest) (*spi.ConfigureResponse, error) {
@@ -104,56 +148,40 @@ func (m *awssecretPlugin) Configure(ctx context.Context, req *spi.ConfigureReque
 		return nil, iidError.New("configuration missing both access key id and secret access key")
 	}
 
+	switch {
+	case config.CertFileARN != "" && config.KeyFileARN != "":
+	case config.CertFileARN != "" && config.KeyFileARN == "":
+		return nil, iidError.New("configuration missing key ARN")
+	case config.CertFileARN == "" && config.KeyFileARN != "":
+		return nil, iidError.New("configuration missing cert ARN")
+	case config.CertFileARN == "" && config.KeyFileARN == "":
+		return nil, iidError.New("configuration missing both cert ARN and key ARN")
+	}
+
 	// set the AWS configuration and reset clients
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.config = config
 
-	keyPEMstr, err := readARN(config, config.KeyFileARN)
+	var (
+		sm  secretsmanageriface.SecretsManagerAPI
+		err error
+	)
 
-	if err != nil {
-		return nil, fmt.Errorf("unable to read %s: %s", config.KeyFileARN, err)
+	// Exposed for testing
+	if config.UseFakeSecretsManager == "yes" {
+		// TODO: warn
+		sm, err = newFakeSecretsManagerClient()
+	} else {
+		sm, err = newSecretsManagerClient(config, "us-west-2")
 	}
 
-	keyPEM := []byte(*keyPEMstr)
-
-	block, rest := pem.Decode(keyPEM)
-
-	if block == nil {
-		return nil, errors.New("invalid key format")
-	}
-
-	if len(rest) > 0 {
-		return nil, errors.New("invalid key format: too many keys")
-	}
-
-	key, err := x509.ParseECPrivateKey(block.Bytes)
 	if err != nil {
 		return nil, err
 	}
 
-	certPEMstr, err := readARN(config, config.CertFileARN)
+	key, cert, err := fetchFromSecretsManager(config, sm)
 
-	if err != nil {
-		return nil, fmt.Errorf("unable to read %s: %s", config.CertFileARN, err)
-	}
-
-	certPEM := []byte(*certPEMstr)
-
-	block, rest = pem.Decode(certPEM)
-
-	if block == nil {
-		return nil, errors.New("invalid cert format")
-	}
-
-	if len(rest) > 0 {
-		return nil, errors.New("invalid cert format: too many certs")
-	}
-
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return nil, err
-	}
 	ttl, err := time.ParseDuration(config.TTL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid TTL value: %v", err)
