@@ -110,7 +110,7 @@ func fetchFromSecretsManager(config *AWSSecretConfiguration, sm secretsmanagerif
 	return key, cert, nil
 }
 
-func (m *awssecretPlugin) Configure(ctx context.Context, req *spi.ConfigureRequest) (*spi.ConfigureResponse, error) {
+func (m *awssecretPlugin) configValidation(ctx context.Context, req *spi.ConfigureRequest) (*AWSSecretConfiguration, error) {
 	// Parse HCL config payload into config struct
 
 	config := new(AWSSecretConfiguration)
@@ -142,15 +142,24 @@ func (m *awssecretPlugin) Configure(ctx context.Context, req *spi.ConfigureReque
 		return nil, iidError.New("configuration missing both cert ARN and key ARN")
 	}
 
-	// set the AWS configuration and reset clients
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.config = config
+	return config, nil
+}
 
+func (m *awssecretPlugin) Configure(ctx context.Context, req *spi.ConfigureRequest) (*spi.ConfigureResponse, error) {
 	var (
 		sm  secretsmanageriface.SecretsManagerAPI
 		err error
 	)
+
+	config, err := m.configValidation(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// set the AWS configuration and reset clients
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.config = config
 
 	// Exposed for testing
 	if config.UseFakeSecretsManager == "yes" {
