@@ -31,6 +31,7 @@ var (
 
 type AWSSecretConfiguration struct {
 	TTL                   string `hcl:"ttl" json:"ttl"` // time to live for generated certs
+	Region                string `hcl:"region" json:"region"`
 	CertFileARN           string `hcl:"cert_file_arn" json:"cert_file_arn"`
 	KeyFileARN            string `hcl:"key_file_arn" json:"key_file_arn"`
 	AccessKeyID           string `hcl:"access_key_id" json:"access_key_id"`
@@ -127,25 +128,8 @@ func (m *awssecretPlugin) Configure(ctx context.Context, req *spi.ConfigureReque
 	}
 
 	// Set defaults from the environment
-	if config.AccessKeyID == "" {
-		config.AccessKeyID = m.hooks.getenv("AWS_ACCESS_KEY_ID")
-	}
-	if config.SecretAccessKey == "" {
-		config.SecretAccessKey = m.hooks.getenv("AWS_SECRET_ACCESS_KEY")
-	}
-
 	if config.SecurityToken == "" {
 		config.SecurityToken = m.hooks.getenv("AWS_SESSION_TOKEN")
-	}
-
-	switch {
-	case config.AccessKeyID != "" && config.SecretAccessKey != "":
-	case config.AccessKeyID != "" && config.SecretAccessKey == "":
-		return nil, iidError.New("configuration missing secret access key")
-	case config.AccessKeyID == "" && config.SecretAccessKey != "":
-		return nil, iidError.New("configuration missing access key id")
-	case config.AccessKeyID == "" && config.SecretAccessKey == "":
-		return nil, iidError.New("configuration missing both access key id and secret access key")
 	}
 
 	switch {
@@ -170,10 +154,9 @@ func (m *awssecretPlugin) Configure(ctx context.Context, req *spi.ConfigureReque
 
 	// Exposed for testing
 	if config.UseFakeSecretsManager == "yes" {
-		// TODO: warn
 		sm, err = newFakeSecretsManagerClient()
 	} else {
-		sm, err = newSecretsManagerClient(config, "us-west-2")
+		sm, err = newSecretsManagerClient(config, config.Region)
 	}
 
 	if err != nil {

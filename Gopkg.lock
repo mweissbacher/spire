@@ -60,7 +60,7 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:6638ab5595ccc81c5a72276379d8b415b50cce6f9eb5ec342c64bbd1c15b8f6a"
+  digest = "1:ee5abfbdd3a6ad458dbc7d8ed3d4d6e4d08f45c4621d701d733264c2dce6914f"
   name = "github.com/aws/aws-sdk-go"
   packages = [
     "aws",
@@ -95,6 +95,7 @@
     "service/ec2",
     "service/iam",
     "service/secretsmanager",
+    "service/secretsmanager/secretsmanageriface",
     "service/sts",
   ]
   pruneopts = "UT"
@@ -657,14 +658,13 @@
     "github.com/Azure/go-autorest/autorest/azure/auth",
     "github.com/armon/go-metrics",
     "github.com/aws/aws-sdk-go/aws",
-    "github.com/aws/aws-sdk-go/aws/awserr",
     "github.com/aws/aws-sdk-go/aws/credentials",
-    "github.com/aws/aws-sdk-go/aws/defaults",
     "github.com/aws/aws-sdk-go/aws/request",
     "github.com/aws/aws-sdk-go/aws/session",
     "github.com/aws/aws-sdk-go/service/ec2",
     "github.com/aws/aws-sdk-go/service/iam",
     "github.com/aws/aws-sdk-go/service/secretsmanager",
+    "github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface",
     "github.com/dgrijalva/jwt-go",
     "github.com/golang/mock/gomock",
     "github.com/golang/protobuf/jsonpb",

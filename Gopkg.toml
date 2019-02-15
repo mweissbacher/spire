@@ -142,9 +142,3 @@ required = ["github.com/hashicorp/go-plugin",
   [[prune.project]]
     name = "github.com/grpc-ecosystem/grpc-gateway"
     unused-packages = false
-
-
-
-[[constraint]]
-  name = "github.com/google/tink"
-  version = "1.2.1-0.20181128175927-27fa043f2953"
